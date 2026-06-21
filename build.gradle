@@ -1,0 +1,197 @@
+import groovy.json.JsonSlurper
+import groovy.json.JsonParserType
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+plugins {
+	id "java"
+	id "pmd"
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+def gameRoot = rootDir.parentFile.parentFile
+def modsDir = rootDir.parentFile
+def toolsDir = file("tools")
+def pythonCommand = providers.gradleProperty("pythonCommand").getOrElse("python")
+def modInfoText = file("mod_info.json").readLines("UTF-8")
+		.findAll { !it.trim().startsWith("#") }
+		.join("\n")
+def modInfo = new JsonSlurper()
+		.setType(JsonParserType.LAX)
+		.parseText(modInfoText)
+def modJarName = modInfo.jars ? file(modInfo.jars[0]).name : "${project.name}.jar"
+def modVersion = modInfo.version
+def modVersionName = modVersion
+		? "${modVersion.major}.${modVersion.minor}.${modVersion.patch}"
+		: "dev"
+
+def modJarDirs = [
+	"${modsDir}/LazyLib/jars",
+	"${modsDir}/LazyLib/jars/internal",
+	"${modsDir}/MagicLib/jars",
+	"${modsDir}/LunaLib/jars",
+	"${modsDir}/LunaLib/jars/libs",
+	"${modsDir}/GraphicsLib/jars",
+	// add path here
+]
+
+sourceSets {
+	main {
+		java {
+			srcDirs = ["src"]
+		}
+	}
+}
+
+dependencies {
+	compileOnly fileTree(dir: "${gameRoot}/starsector-core", include: ["*.jar"])
+	modJarDirs.each { dir ->
+		compileOnly fileTree(dir: dir, include: ["*.jar"])
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = "UTF-8"
+	options.release = 17
+}
+
+tasks.named("jar") {
+	archiveFileName = modJarName
+	destinationDirectory = file("jars")
+}
+
+tasks.register("distZip", Zip) {
+	group = "distribution"
+	description = "Builds a distributable mod archive under dist."
+	dependsOn "jar"
+	archiveFileName = providers.provider {
+		def timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+		"${project.name}-${modVersionName}-${timestamp}.zip"
+	}
+	destinationDirectory = file("dist")
+	from(rootDir) {
+		include "data/**"
+		include "graphics/**"
+		include "jars/**"
+		include "sounds/**"
+		include "mod_info.json"
+		include "mod_info_ENG.json"
+		include "*.txt"
+		include "icon.ico"
+		include "*.version"
+		include "swapLangFile.py"
+	}
+}
+
+pmd {
+	toolVersion = "7.25.0"
+	ruleSetFiles = files("${toolsDir}/pmd/ruleset.xml")
+	ruleSets = []
+	consoleOutput = true
+	ignoreFailures = false
+}
+
+tasks.withType(Pmd).configureEach {
+	source = fileTree("src") {
+		include "**/*.java"
+	}
+	reports {
+		xml.required = false
+		html.required = true
+	}
+}
+
+def registerPythonCheckerTask = { String taskName, String scriptPath, boolean checkOnly ->
+	tasks.register(taskName, Exec) {
+		def args = [file(scriptPath)]
+		if (checkOnly) {
+			args.add("--check")
+		}
+		environment "PYTHONDONTWRITEBYTECODE", "1"
+		commandLine([pythonCommand] + args)
+	}
+}
+
+registerPythonCheckerTask.call("removeUtf8Bom", "tools/formatter/utf8_no_bom.py", false)
+registerPythonCheckerTask.call("formatCrlf", "tools/formatter/to_crlf.py", false)
+registerPythonCheckerTask.call("formatJavaTabs", "tools/formatter/java_tabs.py", false)
+registerPythonCheckerTask.call("formatJavaEof", "tools/formatter/java_single_final_blank_line.py", false)
+registerPythonCheckerTask.call("removePycache", "tools/formatter/remove_pycache.py", false)
+
+registerPythonCheckerTask.call("checkUtf8Bom", "tools/formatter/utf8_no_bom.py", true)
+registerPythonCheckerTask.call("checkCrlf", "tools/formatter/to_crlf.py", true)
+registerPythonCheckerTask.call("checkJavaTabs", "tools/formatter/java_tabs.py", true)
+registerPythonCheckerTask.call("checkJavaEof", "tools/formatter/java_single_final_blank_line.py", true)
+registerPythonCheckerTask.call("checkPycache", "tools/formatter/remove_pycache.py", true)
+
+tasks.named("formatCrlf") {
+	dependsOn "removeUtf8Bom"
+	mustRunAfter "removeUtf8Bom"
+}
+
+tasks.named("formatJavaTabs") {
+	dependsOn "formatCrlf"
+	mustRunAfter "formatCrlf"
+}
+
+tasks.named("formatJavaEof") {
+	dependsOn "formatJavaTabs"
+	mustRunAfter "formatJavaTabs"
+}
+
+tasks.named("removePycache") {
+	dependsOn "formatJavaEof"
+	mustRunAfter "formatJavaEof"
+}
+
+tasks.named("checkCrlf") {
+	dependsOn "checkUtf8Bom"
+	mustRunAfter "checkUtf8Bom"
+}
+
+tasks.named("checkJavaTabs") {
+	dependsOn "checkCrlf"
+	mustRunAfter "checkCrlf"
+}
+
+tasks.named("checkJavaEof") {
+	dependsOn "checkJavaTabs"
+	mustRunAfter "checkJavaTabs"
+}
+
+tasks.named("checkPycache") {
+	dependsOn "checkJavaEof"
+	mustRunAfter "checkJavaEof"
+}
+
+tasks.register("formatProject") {
+	dependsOn "removePycache"
+}
+
+tasks.register("verifyFormat") {
+	dependsOn "checkPycache"
+}
+
+tasks.named("compileJava") {
+	mustRunAfter "formatProject"
+}
+
+tasks.named("pmdMain") {
+	mustRunAfter "compileJava"
+}
+
+tasks.register("projectCheck") {
+	dependsOn "formatProject", "compileJava", "pmdMain"
+}
+
+tasks.register("verifyProject") {
+	dependsOn "verifyFormat", "compileJava", "pmdMain"
+}
+
+tasks.named("check") {
+	dependsOn "verifyProject"
+}
