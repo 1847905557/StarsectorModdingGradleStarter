@@ -1,6 +1,6 @@
-package checks.rules;
+package checks.project.rules;
 
-import checks.ProjectRule;
+import checks.project.ProjectRule;
 
 import java.util.List;
 
@@ -9,7 +9,6 @@ public final class ProjectRules {
 	}
 
 	public static List<ProjectRule> all() {
-		// TODO: Register project static rules here as the checks framework is extended.
 		return List.of();
 	}
 }

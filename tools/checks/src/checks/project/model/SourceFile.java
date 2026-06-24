@@ -1,4 +1,4 @@
-package checks;
+package checks.project.model;
 
 import com.github.javaparser.ast.CompilationUnit;
 

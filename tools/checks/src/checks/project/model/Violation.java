@@ -1,4 +1,4 @@
-package checks;
+package checks.project.model;
 
 import java.nio.file.Path;
 

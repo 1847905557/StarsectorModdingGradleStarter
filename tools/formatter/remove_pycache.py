@@ -18,7 +18,8 @@ def main() -> int:
 
     for path in removed:
         print(f"[PYCACHE] {path.relative_to(ROOT)}")
-    print(f"__pycache__ removed: {len(removed)}")
+    action = "found" if args.check else "removed"
+    print(f"__pycache__ {action}: {len(removed)}")
     return 1 if args.check and removed else 0
 
 

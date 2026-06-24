@@ -4,7 +4,6 @@ import groovy.json.JsonParserType
 pluginManagement {
 	repositories {
 		gradlePluginPortal()
-		mavenCentral()
 	}
 }
 
@@ -15,7 +14,8 @@ dependencyResolutionManagement {
 	}
 }
 
-def modInfoText = file("mod_info.json").readLines("UTF-8")
+def modInfoFile = file("mod_info.json")
+def modInfoText = modInfoFile.readLines("UTF-8")
 		.findAll { !it.trim().startsWith("#") }
 		.join("\n")
 def modInfo = new JsonSlurper()

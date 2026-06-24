@@ -27,7 +27,8 @@ def main() -> int:
 
     for path in changed:
         print(f"[JAVA EOF] {path.relative_to(ROOT)}")
-    print(f"Java EOF normalized: {len(changed)}")
+    action = "needed" if args.check else "normalized"
+    print(f"Java EOF {action}: {len(changed)}")
     return 1 if args.check and changed else 0
 
 

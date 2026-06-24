@@ -24,7 +24,8 @@ def main() -> int:
 
     for path in changed:
         print(f"[CRLF] {path.relative_to(ROOT)}")
-    print(f"CRLF converted: {len(changed)}")
+    action = "needed" if args.check else "converted"
+    print(f"CRLF {action}: {len(changed)}")
     return 1 if args.check and changed else 0
 
 

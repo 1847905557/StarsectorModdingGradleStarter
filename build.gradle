@@ -12,11 +12,16 @@ java {
 	targetCompatibility = JavaVersion.VERSION_17
 }
 
+// Project model
 def gameRoot = rootDir.parentFile.parentFile
 def modsDir = rootDir.parentFile
-def toolsDir = file("tools")
+def mainSourceDir = file("src")
+def formatterScriptsDir = file("tools/formatter")
+def projectRulesSourceDir = file("tools/checks/src")
+def projectRulesFixturesDir = file("tools/checks/fixtures")
 def pythonCommand = providers.gradleProperty("pythonCommand").getOrElse("python")
-def modInfoText = file("mod_info.json").readLines("UTF-8")
+def modInfoFile = file("mod_info.json")
+def modInfoText = modInfoFile.readLines("UTF-8")
 		.findAll { !it.trim().startsWith("#") }
 		.join("\n")
 def modInfo = new JsonSlurper()
@@ -31,39 +36,41 @@ def modVersionName = modVersion
 def modJarDirs = [
 	"${modsDir}/LazyLib/jars",
 	"${modsDir}/LazyLib/jars/internal",
-	"${modsDir}/MagicLib/jars",
-	"${modsDir}/LunaLib/jars",
-	"${modsDir}/LunaLib/jars/libs",
 	"${modsDir}/GraphicsLib/jars",
+	"${modsDir}/MagicLib/jars",
 	// add path here
 ]
 
+// Source sets
 sourceSets {
 	main {
 		java {
-			srcDirs = ["src"]
+			srcDirs = [mainSourceDir]
 		}
 	}
-	projectChecks {
+	projectRules {
 		java {
-			srcDirs = ["tools/checks/src"]
+			srcDirs = [projectRulesSourceDir]
 		}
 	}
 }
 
+// Dependencies
 dependencies {
 	compileOnly fileTree(dir: "${gameRoot}/starsector-core", include: ["*.jar"])
 	modJarDirs.each { dir ->
 		compileOnly fileTree(dir: dir, include: ["*.jar"])
 	}
-	projectChecksImplementation "com.github.javaparser:javaparser-core:3.26.4"
+	projectRulesImplementation "com.github.javaparser:javaparser-symbol-solver-core:3.26.4"
 }
 
+// Compilation
 tasks.withType(JavaCompile).configureEach {
 	options.encoding = "UTF-8"
 	options.release = 17
 }
 
+// Packaging
 tasks.named("jar") {
 	archiveFileName = modJarName
 	destinationDirectory = file("jars")
@@ -92,74 +99,106 @@ tasks.register("distZip", Zip) {
 	}
 }
 
-def registerPythonCheckerTask = { String taskName, String scriptPath, boolean checkOnly ->
-	tasks.register(taskName, Exec) {
-		def args = [file(scriptPath)]
-		if (checkOnly) {
-			args.add("--check")
-		}
-		environment "PYTHONDONTWRITEBYTECODE", "1"
-		commandLine([pythonCommand] + args)
-	}
+// Formatting
+def formatterScript = { String scriptName ->
+	file("${formatterScriptsDir.path}/${scriptName}")
 }
 
-registerPythonCheckerTask.call("removeUtf8Bom", "tools/formatter/utf8_no_bom.py", false)
-registerPythonCheckerTask.call("formatCrlf", "tools/formatter/to_crlf.py", false)
-registerPythonCheckerTask.call("formatJavaTabs", "tools/formatter/java_tabs.py", false)
-registerPythonCheckerTask.call("formatJavaEof", "tools/formatter/java_single_final_blank_line.py", false)
-registerPythonCheckerTask.call("removePycache", "tools/formatter/remove_pycache.py", false)
+tasks.register("removeUtf8Bom", Exec) {
+	group = "formatting"
+	description = "Removes UTF-8 BOM markers from project files."
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("utf8_no_bom.py")
+}
 
-registerPythonCheckerTask.call("checkUtf8Bom", "tools/formatter/utf8_no_bom.py", true)
-registerPythonCheckerTask.call("checkCrlf", "tools/formatter/to_crlf.py", true)
-registerPythonCheckerTask.call("checkJavaTabs", "tools/formatter/java_tabs.py", true)
-registerPythonCheckerTask.call("checkJavaEof", "tools/formatter/java_single_final_blank_line.py", true)
-registerPythonCheckerTask.call("checkPycache", "tools/formatter/remove_pycache.py", true)
-
-tasks.named("formatCrlf") {
+tasks.register("formatCrlf", Exec) {
+	group = "formatting"
+	description = "Converts project text files to CRLF line endings."
 	dependsOn "removeUtf8Bom"
 	mustRunAfter "removeUtf8Bom"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("to_crlf.py")
 }
 
-tasks.named("formatJavaTabs") {
+tasks.register("formatJavaTabs", Exec) {
+	group = "formatting"
+	description = "Converts Java indentation to tabs."
 	dependsOn "formatCrlf"
 	mustRunAfter "formatCrlf"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("java_tabs.py")
 }
 
-tasks.named("formatJavaEof") {
+tasks.register("formatJavaEof", Exec) {
+	group = "formatting"
+	description = "Normalizes Java file endings."
 	dependsOn "formatJavaTabs"
 	mustRunAfter "formatJavaTabs"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("java_single_final_blank_line.py")
 }
 
-tasks.named("removePycache") {
+tasks.register("removePycache", Exec) {
+	group = "formatting"
+	description = "Removes Python __pycache__ directories."
 	dependsOn "formatJavaEof"
 	mustRunAfter "formatJavaEof"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("remove_pycache.py")
 }
 
-tasks.named("checkCrlf") {
+tasks.register("checkUtf8Bom", Exec) {
+	group = "verification"
+	description = "Checks project files for UTF-8 BOM markers."
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("utf8_no_bom.py"), "--check"
+}
+
+tasks.register("checkCrlf", Exec) {
+	group = "verification"
+	description = "Checks project text files for CRLF line endings."
 	dependsOn "checkUtf8Bom"
 	mustRunAfter "checkUtf8Bom"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("to_crlf.py"), "--check"
 }
 
-tasks.named("checkJavaTabs") {
+tasks.register("checkJavaTabs", Exec) {
+	group = "verification"
+	description = "Checks Java indentation."
 	dependsOn "checkCrlf"
 	mustRunAfter "checkCrlf"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("java_tabs.py"), "--check"
 }
 
-tasks.named("checkJavaEof") {
+tasks.register("checkJavaEof", Exec) {
+	group = "verification"
+	description = "Checks Java file endings."
 	dependsOn "checkJavaTabs"
 	mustRunAfter "checkJavaTabs"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("java_single_final_blank_line.py"), "--check"
 }
 
-tasks.named("checkPycache") {
+tasks.register("checkPycache", Exec) {
+	group = "verification"
+	description = "Checks for Python __pycache__ directories."
 	dependsOn "checkJavaEof"
 	mustRunAfter "checkJavaEof"
+	environment "PYTHONDONTWRITEBYTECODE", "1"
+	commandLine pythonCommand, formatterScript.call("remove_pycache.py"), "--check"
 }
 
 tasks.register("formatProject") {
+	group = "formatting"
+	description = "Formats project files."
 	dependsOn "removePycache"
 }
 
 tasks.register("verifyFormat") {
+	group = "verification"
+	description = "Checks project file formatting."
 	dependsOn "checkPycache"
 }
 
@@ -167,38 +206,62 @@ tasks.named("compileJava") {
 	mustRunAfter "formatProject"
 }
 
+// Project rules
 tasks.register("projectRulesCheck", JavaExec) {
-	dependsOn "projectChecksClasses"
 	group = "verification"
-	description = "Runs project-specific JavaParser static checks."
-	classpath = sourceSets.projectChecks.runtimeClasspath
-	mainClass = "checks.ProjectRulesCheck"
-	args file("src")
+	description = "Runs Java project rules."
+	dependsOn "compileProjectRulesJava"
+	mainClass = "checks.project.ProjectRulesCheck"
+	classpath = sourceSets.projectRules.runtimeClasspath
+	inputs.dir mainSourceDir
+	inputs.files sourceSets.main.compileClasspath
+	argumentProviders.add(new org.gradle.process.CommandLineArgumentProvider() {
+		@Override
+		Iterable<String> asArguments() {
+			return [mainSourceDir.absolutePath] + sourceSets.main.compileClasspath.files
+					.findAll { it.exists() }
+					.collect { it.absolutePath }
+		}
+	})
 }
 
 tasks.register("projectRulesFixtureCheck", JavaExec) {
-	dependsOn "projectChecksClasses"
 	group = "verification"
-	description = "Runs project-specific JavaParser rule fixtures."
-	classpath = sourceSets.projectChecks.runtimeClasspath
-	mainClass = "checks.ProjectRulesFixtureCheck"
-	args file("tools/checks/fixtures")
+	description = "Runs fixtures for Java project rules."
+	dependsOn "compileProjectRulesJava"
+	mainClass = "checks.project.ProjectRulesFixtureCheck"
+	classpath = sourceSets.projectRules.runtimeClasspath
+	inputs.dir projectRulesFixturesDir
+	args projectRulesFixturesDir.absolutePath
+}
+
+tasks.register("projectRulesIntegrityCheck", JavaExec) {
+	group = "verification"
+	description = "Checks project rule registry, fixtures, and README sync."
+	dependsOn "compileProjectRulesJava"
+	mainClass = "checks.integrity.ProjectRulesIntegrityCheck"
+	classpath = sourceSets.projectRules.runtimeClasspath
+	inputs.dir projectRulesSourceDir
+	inputs.dir projectRulesFixturesDir
+	inputs.file file("tools/README.md")
+	args projectRulesSourceDir.absolutePath, projectRulesFixturesDir.absolutePath, file("tools/README.md").absolutePath
 }
 
 tasks.named("projectRulesCheck") {
 	mustRunAfter "compileJava"
 }
 
-tasks.named("projectRulesFixtureCheck") {
-	mustRunAfter "projectRulesCheck"
-}
-
-tasks.register("projectCheck") {
-	dependsOn "formatProject", "compileJava", "projectRulesCheck", "projectRulesFixtureCheck"
+// Aggregate verification and formatting
+tasks.register("fixProject") {
+	group = "formatting"
+	description = "Formats, compiles, and checks the full project."
+	dependsOn "formatProject", "compileJava", "projectRulesCheck", "projectRulesFixtureCheck", "projectRulesIntegrityCheck"
 }
 
 tasks.register("verifyProject") {
-	dependsOn "verifyFormat", "compileJava", "projectRulesCheck", "projectRulesFixtureCheck"
+	group = "verification"
+	description = "Compiles and checks the full project without formatting writes."
+	dependsOn "verifyFormat", "compileJava", "projectRulesCheck", "projectRulesFixtureCheck", "projectRulesIntegrityCheck"
 }
 
 tasks.named("check") {

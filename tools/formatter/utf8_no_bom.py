@@ -23,7 +23,8 @@ def main() -> int:
 
     for path in changed:
         print(f"[UTF8 BOM] {path.relative_to(ROOT)}")
-    print(f"UTF-8 BOM removed: {len(changed)}")
+    action = "found" if args.check else "removed"
+    print(f"UTF-8 BOM {action}: {len(changed)}")
     return 1 if args.check and changed else 0
 
 
